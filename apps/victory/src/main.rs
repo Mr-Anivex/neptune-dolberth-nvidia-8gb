@@ -208,7 +208,7 @@ unsafe impl Sync for SdkPath {}
 #[cfg(windows)]
 #[unsafe(no_mangle)]
 #[used]
-pub static D3D12SDKPath: SdkPath = SdkPath(b".\\D3D12\\\0".as_ptr());
+pub static D3D12SDKPath: SdkPath = SdkPath(c".\\D3D12\\".as_ptr().cast());
 
 fn main() -> Result<()> {
     // `VICTORY_HEAP_COUNT=1`: the Rust heap's live bytes for the resident line (off: it slowed loading).

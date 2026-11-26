@@ -983,6 +983,66 @@ fn root_signature(
     }
 }
 
+/// Whether the host blends into render targets of `format`. It never does into integer
+/// formats (`R8_UINT`...), where the console's hardware leaves blending out.
+fn blendable(format: DXGI_FORMAT) -> bool {
+    static KNOWN: std::sync::Mutex<Vec<(i32, bool)>> = std::sync::Mutex::new(Vec::new());
+    if format == DXGI_FORMAT_UNKNOWN {
+        return true;
+    }
+    let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&(_, b)) = known.iter().find(|k| k.0 == format.0) {
+        return b;
+    }
+    let Some(host) = host() else { return true };
+    let mut support = D3D12_FEATURE_DATA_FORMAT_SUPPORT { Format: format, ..Default::default() };
+    // SAFETY: a plain query into our own structure.
+    let asked = unsafe {
+        host.device.CheckFeatureSupport(
+            D3D12_FEATURE_FORMAT_SUPPORT,
+            (&raw mut support).cast(),
+            size_of_val(&support) as u32,
+        )
+    };
+    let b = asked.is_err() || support.Support1.0 & D3D12_FORMAT_SUPPORT1_BLENDABLE.0 != 0;
+    if !b {
+        tracing::info!(format = format.0, "the host does not blend into this format: blending off for such targets");
+    }
+    known.push((format.0, b));
+    b
+}
+
+/// (Neptune) The title's blend state for the host: no blending or logic operation on a
+/// render target of an integer format. The console takes such a state and ignores it there;
+/// the host refuses it ("the render target format at slot 2 is R8_UINT; this format does not
+/// support blending", an error of the debug layer's on 2026-11-25).
+fn host_blend(mut blend: D3D12_BLEND_DESC, formats: &[DXGI_FORMAT; 8]) -> D3D12_BLEND_DESC {
+    // (the UINT and SINT formats a target can have)
+    const INTEGER: [i32; 20] = [3, 4, 7, 8, 12, 14, 17, 18, 25, 30, 32, 36, 38, 42, 43, 50, 52, 57, 59, 62];
+    // And any other format the host says it does not blend into (`blendable`, from
+    // JoshuuDev/victory-amd 46dfc10, whose fix this is for the mesh pipelines too: the
+    // windshield wiper mask blends MAX into an R8_UINT target and was refused).
+    let integer = |f: DXGI_FORMAT| INTEGER.contains(&f.0) || f.0 == 64 || !blendable(f);
+    if !formats.iter().any(|&f| integer(f)) {
+        return blend;
+    }
+    if !blend.IndependentBlendEnable.as_bool() {
+        // one state for every target: each its own copy, so that only the integer ones change
+        blend.IndependentBlendEnable = true.into();
+        let first = blend.RenderTarget[0];
+        for target in &mut blend.RenderTarget[1..] {
+            *target = first;
+        }
+    }
+    for (target, &format) in blend.RenderTarget.iter_mut().zip(formats) {
+        if integer(format) {
+            target.BlendEnable = false.into();
+            target.LogicOpEnable = false.into();
+        }
+    }
+    blend
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -1332,64 +1392,4 @@ mod tests {
         assert_eq!(run_draw(0.6, 1.0), 0, "depth 0.5 outside [0.6, 1.0] must be rejected");
         assert_eq!(run_draw(0.4, 0.6), 255, "depth 0.5 inside [0.4, 0.6] must pass");
     }
-}
-
-/// Whether the host blends into render targets of `format`. It never does into integer
-/// formats (`R8_UINT`...), where the console's hardware leaves blending out.
-fn blendable(format: DXGI_FORMAT) -> bool {
-    static KNOWN: std::sync::Mutex<Vec<(i32, bool)>> = std::sync::Mutex::new(Vec::new());
-    if format == DXGI_FORMAT_UNKNOWN {
-        return true;
-    }
-    let mut known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(&(_, b)) = known.iter().find(|k| k.0 == format.0) {
-        return b;
-    }
-    let Some(host) = host() else { return true };
-    let mut support = D3D12_FEATURE_DATA_FORMAT_SUPPORT { Format: format, ..Default::default() };
-    // SAFETY: a plain query into our own structure.
-    let asked = unsafe {
-        host.device.CheckFeatureSupport(
-            D3D12_FEATURE_FORMAT_SUPPORT,
-            (&raw mut support).cast(),
-            size_of_val(&support) as u32,
-        )
-    };
-    let b = asked.is_err() || support.Support1.0 & D3D12_FORMAT_SUPPORT1_BLENDABLE.0 != 0;
-    if !b {
-        tracing::info!(format = format.0, "the host does not blend into this format: blending off for such targets");
-    }
-    known.push((format.0, b));
-    b
-}
-
-/// (Neptune) The title's blend state for the host: no blending or logic operation on a
-/// render target of an integer format. The console takes such a state and ignores it there;
-/// the host refuses it ("the render target format at slot 2 is R8_UINT; this format does not
-/// support blending", an error of the debug layer's on 2026-11-25).
-fn host_blend(mut blend: D3D12_BLEND_DESC, formats: &[DXGI_FORMAT; 8]) -> D3D12_BLEND_DESC {
-    // (the UINT and SINT formats a target can have)
-    const INTEGER: [i32; 20] = [3, 4, 7, 8, 12, 14, 17, 18, 25, 30, 32, 36, 38, 42, 43, 50, 52, 57, 59, 62];
-    // And any other format the host says it does not blend into (`blendable`, from
-    // JoshuuDev/victory-amd 46dfc10, whose fix this is for the mesh pipelines too: the
-    // windshield wiper mask blends MAX into an R8_UINT target and was refused).
-    let integer = |f: DXGI_FORMAT| INTEGER.contains(&f.0) || f.0 == 64 || !blendable(f);
-    if !formats.iter().any(|&f| integer(f)) {
-        return blend;
-    }
-    if !blend.IndependentBlendEnable.as_bool() {
-        // one state for every target: each its own copy, so that only the integer ones change
-        blend.IndependentBlendEnable = true.into();
-        let first = blend.RenderTarget[0];
-        for target in &mut blend.RenderTarget[1..] {
-            *target = first;
-        }
-    }
-    for (target, &format) in blend.RenderTarget.iter_mut().zip(formats) {
-        if integer(format) {
-            target.BlendEnable = false.into();
-            target.LogicOpEnable = false.into();
-        }
-    }
-    blend
 }

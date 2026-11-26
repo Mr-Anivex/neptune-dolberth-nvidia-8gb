@@ -153,15 +153,14 @@ fn fit(
     // SAFETY: `area` receives the primary monitor's work area.
     let known =
         unsafe { wm::SystemParametersInfoW(wm::SPI_GETWORKAREA, 0, (&raw mut area).cast(), 0) };
-    if parent.is_null() && known != 0 && width > 0 && height > 0 {
-        if let Some((want_w, want_h)) = requested_window() {
+    if parent.is_null() && known != 0 && width > 0 && height > 0
+        && let Some((want_w, want_h)) = requested_window() {
             let (w, h) = fit_into(&area, want_w, want_h);
             tracing::info!(width, height, to = ?(w, h), "title window sized by VICTORY_WINDOW_SIZE");
             let left = area.left + (area.right - area.left - w) / 2;
             let top = area.top + (area.bottom - area.top - h) / 2;
             return (style, left, top, w, h);
         }
-    }
     let fitted = fit_into(&area, width, height);
     if !parent.is_null() || known == 0 || fitted == (width, height) {
         return (style, x, y, width, height);

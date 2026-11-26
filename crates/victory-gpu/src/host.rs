@@ -3447,7 +3447,7 @@ struct Flight {
 
 /// One thing in the line of what waits for the card, in order.
 enum Late {
-    Run(Flight),
+    Run(Box<Flight>),
     /// A bottom-of-pipe write of the flight before it: address, what, bytes.
     Write(usize, crate::queue::Written, usize),
     /// A fence (its address) signalled behind the flights before it.
@@ -6063,7 +6063,7 @@ impl Host {
             let flights: Vec<&Flight> = items
                 .iter()
                 .filter_map(|l| match l {
-                    Late::Run(flight) => Some(flight),
+                    Late::Run(flight) => Some(flight.as_ref()),
                     _ => None,
                 })
                 .collect();
@@ -6347,14 +6347,14 @@ impl Host {
             join_ranges(written, sent.back.iter().flat_map(|(_, ranges)| ranges.iter().copied()));
             *flying += order.len();
             *target = *submitted;
-            items.push(Late::Run(Flight {
+            items.push(Late::Run(Box::new(Flight {
                 number: sent.number,
                 fence: *target,
                 lists,
                 order,
                 card: sent.card,
                 back: sent.back,
-            }));
+            })));
             items.extend(sent.writes.into_iter().map(|(at, what, bytes)| Late::Write(at, what, bytes)));
             *flying >= late_most()
         };
@@ -6391,14 +6391,14 @@ impl Host {
             join_ranges(written, sent.back.iter().flat_map(|(_, ranges)| ranges.iter().copied()));
             *flying += 1;
             *target = *submitted;
-            items.push(Late::Run(Flight {
+            items.push(Late::Run(Box::new(Flight {
                 number,
                 fence: *target,
                 lists: Vec::new(),
                 order: Vec::new(),
                 card: sent.card,
                 back: sent.back,
-            }));
+            })));
             items.extend(sent.writes.into_iter().map(|(at, what, bytes)| Late::Write(at, what, bytes)));
         }
         LATE_STATS[0].fetch_add(1, Ordering::Relaxed);
@@ -9345,8 +9345,8 @@ impl Meter {
                     loop {
                         let next = PENDING.lock().unwrap_or_else(|e| e.into_inner()).take();
                         newest = next.or(newest);
-                        if let Some((hwnd, text)) = &newest {
-                            if *text != shown {
+                        if let Some((hwnd, text)) = &newest
+                            && *text != shown {
                                 let wide: Vec<u16> = text.encode_utf16().chain([0]).collect();
                                 // SAFETY: a window handle and a NUL-terminated text.
                                 unsafe {
@@ -9357,7 +9357,6 @@ impl Meter {
                                 }
                                 shown.clone_from(text);
                             }
-                        }
                         std::thread::sleep(Duration::from_millis(100));
                     }
                 });
