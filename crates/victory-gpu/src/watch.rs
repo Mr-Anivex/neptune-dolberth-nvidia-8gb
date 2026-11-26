@@ -333,10 +333,7 @@ fn written_set(page: usize, now: u64) -> u64 {
     use std::sync::atomic::Ordering::Release;
     if watch_4k() {
         // Before the page's stamp, which a reader looks at first.
-        match part_of(&WHOLE, page, true) {
-            Some(part) => part.0[page % PART].store(now, Release),
-            None => {}
-        }
+        if let Some(part) = part_of(&WHOLE, page, true) { part.0[page % PART].store(now, Release) }
     }
     stamp_set(page, now)
 }
@@ -724,14 +721,14 @@ fn ask_once_quiet(ranges: &[(usize, usize)]) {
                 c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]
             );
         }
-        if guard_hot() > 0 && frame % 512 == 0 {
+        if guard_hot() > 0 && frame.is_multiple_of(512) {
             tracing::info!(
                 "blocks of view memory left without their guard so far (VICTORY_GUARD_HOT={}): {}",
                 guard_hot(),
                 HOT_LEFT.load(std::sync::atomic::Ordering::Relaxed)
             );
         }
-        if crate::shadow::copy_changed() && frame % 512 == 0 {
+        if crate::shadow::copy_changed() && frame.is_multiple_of(512) {
             let [read, differed] = crate::shadow::copy_changed_stats();
             let [quiet, through] = crate::shadow::quiet_back_stats();
             if watch_4k() {
@@ -2345,7 +2342,13 @@ mod tests {
         assert_eq!(guard(p, p + 3 * BLOCK), Some(Vec::new()), "nothing written since");
         // SAFETY: inside the mapped middle block.
         unsafe { ((p + BLOCK + 8) as *mut u8).write_volatile(1) };
+        if guard_rest() > 0 {
+            // The write opened the block, and it rests (`guard_rest`): written at each
+            // asking until its rest is over, and guarded again at the first after.
+            std::thread::sleep(std::time::Duration::from_micros(guard_rest() + 1000));
+        }
         assert_eq!(guard(p, p + 3 * BLOCK), Some(pages(1).collect()));
+        assert_eq!(guard(p, p + 3 * BLOCK), Some(Vec::new()));
         let first = map(0);
         title_memory_remapped(p, BLOCK);
         assert_eq!(guard(p, p + 3 * BLOCK), Some(pages(0).collect()));

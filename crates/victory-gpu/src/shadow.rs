@@ -896,7 +896,7 @@ pub(crate) fn outside(from: usize, to: usize, mut skip: Vec<(usize, usize)>) -> 
 fn word_runs(address: usize, read: &[u8], merged: &[u8], mut put: impl FnMut(usize, usize)) {
     let n = read.len().min(merged.len());
     #[cfg(target_arch = "x86_64")]
-    if address % 4 == 0 && n % 4 == 0 && n >= 256 && std::arch::is_x86_feature_detected!("avx2") {
+    if address.is_multiple_of(4) && n.is_multiple_of(4) && n >= 256 && std::arch::is_x86_feature_detected!("avx2") {
         // SAFETY: AVX2 is supported and `n` is a multiple of 4 within both slices.
         for (at, len) in unsafe { word_runs_avx2(&read[..n], &merged[..n]) } {
             put(at, len);
@@ -2058,8 +2058,8 @@ fn widen_to_words(address: usize, n: usize, runs: Vec<(usize, usize)>) -> Vec<(u
 /// `_mm256_movemask_ps` (ported from `avatarmanz/VIctory-7900XTX` `b620284`).
 fn under_word_runs(address: usize, title: &[u8], held: &[u8]) -> Vec<(usize, usize)> {
     #[cfg(target_arch = "x86_64")]
-    if address % 4 == 0
-        && title.len() % 4 == 0
+    if address.is_multiple_of(4)
+        && title.len().is_multiple_of(4)
         && title.len() == held.len()
         && std::arch::is_x86_feature_detected!("avx2")
     {
@@ -2526,7 +2526,10 @@ pub(crate) fn let_go_idle() {
         if map.is_empty() {
             return;
         }
-        let idle_ms = crate::host::ram_idle_ms(crate::host::available_physical_ram());
+        let idle_ms = crate::host::ram_idle_ms(
+            crate::host::available_physical_ram(),
+            crate::host::host().and_then(|h| h.video_memory()),
+        );
         let idle: Vec<(u64, u64)> = map
             .iter()
             .filter(|(_, s)| {

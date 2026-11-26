@@ -106,14 +106,13 @@ pub(crate) fn alloc(n: u64) -> Option<Chunk> {
         if !fits(pool) {
             if let Some(i) = pool.slabs.iter().position(|s| s.live.load(Ordering::Acquire) == 0) {
                 (pool.cur, pool.at) = (i, 0);
-            } else if POOLED.load(Ordering::Relaxed) + SLAB <= most() {
-                if let Some(slab) = make(SLAB, false) {
+            } else if POOLED.load(Ordering::Relaxed) + SLAB <= most()
+                && let Some(slab) = make(SLAB, false) {
                     let total = POOLED.fetch_add(SLAB, Ordering::Relaxed) + SLAB;
                     PEAK.fetch_max(total, Ordering::Relaxed);
                     pool.slabs.push(slab);
                     (pool.cur, pool.at) = (pool.slabs.len() - 1, 0);
                 }
-            }
         }
         if fits(pool) {
             let slab = pool.slabs[pool.cur].clone();

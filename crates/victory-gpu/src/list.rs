@@ -972,7 +972,7 @@ pub(crate) fn upscale(
     ) else {
         return false;
     };
-    let motion_valid = (motion as usize) >= 0x1_0000 && (motion as usize) % 8 == 0;
+    let motion_valid = (motion as usize) >= 0x1_0000 && (motion as usize).is_multiple_of(8);
     let motion_res = if motion_valid {
         crate::resource::host_resource(motion)
     } else {
@@ -1040,11 +1040,9 @@ extern "system" fn copy_buffer_region(
     if let Some(list) = recording_list(this)
         && let Some(to) = buffer_range(dst, dst_offset, len)
         && let Some(from) = buffer_range(src, src_offset, len)
-    {
-        if !card_copy(list, to, from, len) {
+        && !card_copy(list, to, from, len) {
             list.defer_copy(to, from, len as usize);
         }
-    }
     #[cfg(not(windows))]
     let _ = (this, dst, dst_offset, src, src_offset, len);
 }
