@@ -21,6 +21,7 @@
 /data/
 /dump/
 /dumps/
+/do-not-push/
 /extracted/
 /cache/
 /out/
