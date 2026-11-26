@@ -2345,7 +2345,13 @@ mod tests {
         assert_eq!(guard(p, p + 3 * BLOCK), Some(Vec::new()), "nothing written since");
         // SAFETY: inside the mapped middle block.
         unsafe { ((p + BLOCK + 8) as *mut u8).write_volatile(1) };
+        if guard_rest() > 0 {
+            // The write opened the block, and it rests (`guard_rest`): written at each
+            // asking until its rest is over, and guarded again at the first after.
+            std::thread::sleep(std::time::Duration::from_micros(guard_rest() + 1000));
+        }
         assert_eq!(guard(p, p + 3 * BLOCK), Some(pages(1).collect()));
+        assert_eq!(guard(p, p + 3 * BLOCK), Some(Vec::new()));
         let first = map(0);
         title_memory_remapped(p, BLOCK);
         assert_eq!(guard(p, p + 3 * BLOCK), Some(pages(0).collect()));

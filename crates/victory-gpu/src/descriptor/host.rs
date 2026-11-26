@@ -4126,13 +4126,15 @@ mod tests {
     fn spans_say_the_next_start_and_the_lowest_level_viewed() {
         let mut spans = Spans::default();
         // A 512x512 texture of 0x56000 bytes viewed from levels 3 and 1,
-        // and the next one 0x6000 after it (run 188).
+        // and the next one 0x6000 after it (run 188). A view's span is the
+        // memory of the levels it shows, so both end where the next begins
+        // at the latest: spans of two textures never overlap.
         let desc = [0u32; 14];
-        spans.note(1, 0x1_0000, 0x1_0000 + 0x5_6000, &desc, true);
+        spans.note(1, 0x1_0000, 0x1_0000 + 0x2000, &desc, true);
         spans.shows(1, 3);
-        spans.note(2, 0x1_0000, 0x1_0000 + 0x5_6000, &desc, true);
+        spans.note(2, 0x1_0000, 0x1_0000 + 0x6000, &desc, true);
         spans.shows(2, 1);
-        spans.note(3, 0x1_6000, 0x1_6000 + 0x5_6000, &desc, true);
+        assert!(spans.note(3, 0x1_6000, 0x1_6000 + 0x5_6000, &desc, true).is_empty());
         assert_eq!(spans.next_start(0x1_0000, 0x1_0000 + 0x5_6000), Some(0x1_6000));
         assert_eq!(spans.next_start(0x1_6000, 0x1_6000 + 0x5_6000), None);
         assert_eq!(spans.first_viewed(0x1_0000), Some(1));

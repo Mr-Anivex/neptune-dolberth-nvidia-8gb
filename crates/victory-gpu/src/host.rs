@@ -238,15 +238,17 @@ pub(crate) fn vram_idle_ms_by_room(video_memory: Option<[u64; 4]>, room: bool) -
 /// buffers, loose shadows, and the mapped pipeline library), scaled down
 /// only under real physical-RAM or near-OOM VRAM pressure (avoids buffer
 /// destroy/recreate thrashing on 8 GB VRAM / 16 GB RAM PCs).
-pub(crate) fn ram_idle_ms(avail_phys: Option<u64>) -> u64 {
+/// `video_memory`: the host's card ([`Host::video_memory`]).
+pub(crate) fn ram_idle_ms(avail_phys: Option<u64>, video_memory: Option<[u64; 4]>) -> u64 {
     const GIB: u64 = 1024 * 1024 * 1024;
     const NORMAL_MS: u64 = 10_000;
     const MODERATE_MS: u64 = 5_000;
     const HIGH_MS: u64 = 2_000;
-    if let Some([budget, used, ..]) = host().and_then(|h| h.video_memory()) {
-        if budget > 0 && used.saturating_mul(100) >= budget.saturating_mul(94) {
-            return HIGH_MS;
-        }
+    if let Some([budget, used, ..]) = video_memory
+        && budget > 0
+        && used.saturating_mul(100) >= budget.saturating_mul(94)
+    {
+        return HIGH_MS;
     }
     let Some(avail) = avail_phys else {
         return NORMAL_MS;
@@ -10406,16 +10408,21 @@ mod batch {   // Batch::texture_due lives here; `mod tests` is already taken at 
     fn ram_idle_ms_scales_with_pressure() {
         use super::ram_idle_ms;
         let gib = 1024 * 1024 * 1024;
-        // Normal (>= 4 GiB)
-        assert_eq!(ram_idle_ms(Some(8 * gib)), 10_000);
-        assert_eq!(ram_idle_ms(Some(4 * gib)), 10_000);
-        // Moderate (2 GiB..4 GiB)
-        assert_eq!(ram_idle_ms(Some(4 * gib - 1)), 5_000);
-        assert_eq!(ram_idle_ms(Some(2 * gib)), 5_000);
-        // High (< 2 GiB)
-        assert_eq!(ram_idle_ms(Some(2 * gib - 1)), 2_000);
-        assert_eq!(ram_idle_ms(Some(0)), 2_000);
+        // Normal (>= 3 GiB)
+        assert_eq!(ram_idle_ms(Some(8 * gib), None), 10_000);
+        assert_eq!(ram_idle_ms(Some(3 * gib), None), 10_000);
+        // Moderate (1 GiB..3 GiB)
+        assert_eq!(ram_idle_ms(Some(3 * gib - 1), None), 5_000);
+        assert_eq!(ram_idle_ms(Some(gib), None), 5_000);
+        // High (< 1 GiB)
+        assert_eq!(ram_idle_ms(Some(gib - 1), None), 2_000);
+        assert_eq!(ram_idle_ms(Some(0), None), 2_000);
         // Missing falls back to normal
-        assert_eq!(ram_idle_ms(None), 10_000);
+        assert_eq!(ram_idle_ms(None, None), 10_000);
+        // The card at 94% of its budget or more is high, whatever the RAM
+        assert_eq!(ram_idle_ms(Some(8 * gib), Some([100, 94, 0, 0])), 2_000);
+        assert_eq!(ram_idle_ms(None, Some([10 * gib, 12 * gib, 0, 0])), 2_000);
+        assert_eq!(ram_idle_ms(Some(8 * gib), Some([100, 93, 0, 0])), 10_000);
+        assert_eq!(ram_idle_ms(Some(8 * gib), Some([0, 100, 0, 0])), 10_000);
     }
 }

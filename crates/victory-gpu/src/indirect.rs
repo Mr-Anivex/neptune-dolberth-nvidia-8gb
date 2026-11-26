@@ -1137,9 +1137,12 @@ void main() {
             std::ptr::write_bytes(masks_ptr, 0xff, 4096);
             std::ptr::copy_nonoverlapping(crate::host::block_mask(1, &first).as_ptr(), masks_ptr.add(1024), 512);
             std::ptr::copy_nonoverlapping(crate::host::block_mask(2, &second).as_ptr(), masks_ptr.add(1536), 512);
+            // The blocks' table: each block's first byte in the copy, and where its mask is.
+            let table = [BLOCK as u32, 1024, 2 * BLOCK as u32, 1536];
+            std::ptr::copy_nonoverlapping(table.as_ptr().cast::<u8>(), masks_ptr.add(2048), 16);
             warp.list.SetComputeRootSignature(&patch.root);
             warp.list.SetPipelineState(&patch.pso);
-            let constants = [BLOCK as u32, 1024u32];
+            let constants = [2048u32, 2];
             warp.list.SetComputeRoot32BitConstants(0, 2, constants.as_ptr().cast(), 0);
             warp.list.SetComputeRootShaderResourceView(1, from_gpu);
             warp.list.SetComputeRootShaderResourceView(2, masks_gpu);
@@ -1202,7 +1205,8 @@ void main() {
                 warp.list.SetComputeRootShaderResourceView(1, now_gpu);
                 warp.list.SetComputeRootUnorderedAccessView(2, hashes_gpu);
                 warp.list.SetComputeRootUnorderedAccessView(3, differs_gpu);
-                warp.list.Dispatch(1, 1, 1);
+                // A group per piece.
+                warp.list.Dispatch(pieces, 1, 1);
                 if mode == 2 {
                     warp.list.ResourceBarrier(&[uav_barrier()]);
                     warp.list.SetComputeRootSignature(&fetch.root);
