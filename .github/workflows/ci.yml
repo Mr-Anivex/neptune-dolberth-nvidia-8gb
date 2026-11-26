@@ -30,4 +30,11 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       # Includes xtask's repository_passes_policy, the asset-policy check.
       - name: Tests
-        run: cargo test --workspace --locked
+        shell: bash
+        run: |
+          cargo test --workspace --locked --no-fail-fast > test-out.txt 2>&1
+          code=$?
+          cat test-out.txt
+          grep "FAILED$" test-out.txt | head -10 | while IFS= read -r l; do echo "::error::$l"; done
+          awk '/panicked at/{p=$0; getline; print p " " $0}' test-out.txt | head -10 | while IFS= read -r l; do echo "::error::$l"; done
+          exit $code
